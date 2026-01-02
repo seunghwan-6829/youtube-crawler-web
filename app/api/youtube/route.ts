@@ -118,10 +118,23 @@ async function transcribeWithWhisper(videoId: string): Promise<TranscriptSegment
   // RapidAPI로 오디오 URL 가져오기
   const audioUrl = await getAudioUrl(videoId)
   
-  // 오디오 다운로드
-  const audioResponse = await fetch(audioUrl)
+  // 오디오 다운로드 (여러 방법 시도)
+  let audioResponse = await fetch(audioUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'audio/mpeg, audio/*, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://www.youtube.com/',
+    },
+  })
+  
+  // 첫 시도 실패하면 다른 방식으로 재시도
   if (!audioResponse.ok) {
-    throw new Error('오디오 다운로드에 실패했습니다')
+    audioResponse = await fetch(audioUrl)
+  }
+  
+  if (!audioResponse.ok) {
+    throw new Error('오디오 다운로드에 실패했습니다. 다시 시도해주세요.')
   }
 
   const arrayBuffer = await audioResponse.arrayBuffer()
