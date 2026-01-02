@@ -1,0 +1,99 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gradient-start: #0f0f0f;
+  --gradient-mid: #1a1a2e;
+  --gradient-end: #16213e;
+}
+
+body {
+  background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-mid) 50%, var(--gradient-end) 100%);
+  min-height: 100vh;
+}
+
+/* 커스텀 스크롤바 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #404040;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* 글로우 이펙트 */
+.glow-red {
+  box-shadow: 0 0 20px rgba(255, 62, 62, 0.3), 0 0 40px rgba(255, 62, 62, 0.1);
+}
+
+.glow-red-intense {
+  box-shadow: 0 0 30px rgba(255, 62, 62, 0.5), 0 0 60px rgba(255, 62, 62, 0.2);
+}
+
+/* 텍스트 그라데이션 */
+.text-gradient {
+  background: linear-gradient(135deg, #ff3e3e 0%, #ff6b6b 50%, #ffa07a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 카드 호버 효과 */
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* 입력 필드 포커스 */
+.input-focus {
+  transition: all 0.2s ease;
+}
+
+.input-focus:focus {
+  box-shadow: 0 0 0 3px rgba(255, 62, 62, 0.2);
+}
+
+/* 로딩 애니메이션 */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* 타임스탬프 뱃지 */
+.timestamp {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  background: rgba(255, 62, 62, 0.15);
+  border-radius: 4px;
+  color: #ff6b6b;
+}
+
