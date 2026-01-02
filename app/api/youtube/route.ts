@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { YoutubeTranscript } from 'youtube-transcript'
 import OpenAI from 'openai'
+import ytdl from '@distube/ytdl-core'
 
 // OpenAI 클라이언트
 const openai = process.env.OPENAI_API_KEY 
@@ -62,53 +63,56 @@ async function tryGetSubtitles(videoId: string): Promise<TranscriptSegment[] | n
   }
 }
 
+// ytdl-core로 오디오 스트림 가져오기
+async function getAudioBuffer(videoId: string): Promise<Buffer> {
+  const url = `https://www.youtube.com/watch?v=${videoId}`
+  
+  // 오디오 포맷 정보 가져오기
+  const info = await ytdl.getInfo(url)
+  
+  // 오디오 전용 포맷 선택 (가장 작은 파일)
+  const audioFormat = ytdl.chooseFormat(info.formats, { 
+    quality: 'lowestaudio',
+    filter: 'audioonly'
+  })
+  
+  if (!audioFormat || !audioFormat.url) {
+    throw new Error('오디오 포맷을 찾을 수 없습니다')
+  }
+
+  // 오디오 다운로드
+  const response = await fetch(audioFormat.url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    }
+  })
+
+  if (!response.ok) {
+    throw new Error('오디오 다운로드 실패')
+  }
+
+  const arrayBuffer = await response.arrayBuffer()
+  return Buffer.from(arrayBuffer)
+}
+
 // Whisper API로 음성 인식
 async function transcribeWithWhisper(videoId: string): Promise<TranscriptSegment[]> {
   if (!openai) {
     throw new Error('OpenAI API 키가 설정되지 않았습니다')
   }
 
-  // 유튜브 오디오 다운로드 서비스 사용
-  const audioUrl = `https://yt-download.org/api/button/mp3/${videoId}`
+  // 오디오 버퍼 가져오기
+  const audioBuffer = await getAudioBuffer(videoId)
   
-  // 대안: cobalt.tools API 사용
-  const cobaltResponse = await fetch('https://api.cobalt.tools/api/json', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({
-      url: `https://www.youtube.com/watch?v=${videoId}`,
-      vCodec: 'h264',
-      vQuality: '720',
-      aFormat: 'mp3',
-      isAudioOnly: true,
-    }),
-  })
-
-  if (!cobaltResponse.ok) {
-    // Cobalt 실패 시 직접 다운로드 시도
-    throw new Error('오디오 추출에 실패했습니다. 잠시 후 다시 시도해주세요.')
+  // 파일 크기 체크 (Whisper API 제한: 25MB)
+  const maxSize = 25 * 1024 * 1024
+  if (audioBuffer.length > maxSize) {
+    throw new Error('영상이 너무 깁니다. 짧은 영상으로 시도해주세요.')
   }
 
-  const cobaltData = await cobaltResponse.json()
-  
-  if (cobaltData.status !== 'stream' && cobaltData.status !== 'redirect') {
-    throw new Error('오디오 URL을 가져올 수 없습니다')
-  }
-
-  const finalAudioUrl = cobaltData.url
-
-  // 오디오 다운로드
-  const audioResponse = await fetch(finalAudioUrl)
-  if (!audioResponse.ok) {
-    throw new Error('오디오 다운로드에 실패했습니다')
-  }
-
-  const audioBuffer = await audioResponse.arrayBuffer()
-  const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' })
-  const audioFile = new File([audioBlob], 'audio.mp3', { type: 'audio/mpeg' })
+  // Buffer를 File 객체로 변환
+  const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' })
+  const audioFile = new File([audioBlob], 'audio.webm', { type: 'audio/webm' })
 
   // Whisper API 호출
   const transcription = await openai.audio.transcriptions.create({
@@ -120,7 +124,13 @@ async function transcribeWithWhisper(videoId: string): Promise<TranscriptSegment
   })
 
   // 세그먼트 변환
-  const segments: TranscriptSegment[] = (transcription.segments || []).map((seg: { text: string; start: number; end: number }) => ({
+  interface WhisperSegment {
+    text: string
+    start: number
+    end: number
+  }
+  
+  const segments: TranscriptSegment[] = ((transcription as { segments?: WhisperSegment[] }).segments || []).map((seg: WhisperSegment) => ({
     text: seg.text.trim(),
     offset: seg.start,
     duration: seg.end - seg.start,
@@ -188,6 +198,7 @@ export async function POST(request: NextRequest) {
         transcript = await transcribeWithWhisper(videoId)
         usedWhisper = true
       } catch (error) {
+        console.error('Whisper Error:', error)
         const errorMessage = error instanceof Error ? error.message : '음성 인식에 실패했습니다'
         return NextResponse.json(
           { error: errorMessage },
@@ -214,4 +225,4 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export const maxDuration = 60 // Vercel Pro: 최대 60초
+export const maxDuration = 60
