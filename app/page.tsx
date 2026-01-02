@@ -17,17 +17,10 @@ interface VideoInfo {
 }
 
 interface CrawlResult {
-  videoInfo: VideoInfo
+  videoInfo?: VideoInfo
   transcript: TranscriptSegment[]
   fullText: string
-}
-
-interface HistoryItem {
-  id: string
-  video_id: string
-  title: string
-  thumbnail: string
-  created_at: string
+  fileName?: string
 }
 
 export default function Home() {
@@ -36,8 +29,8 @@ export default function Home() {
   const [result, setResult] = useState<CrawlResult | null>(null)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
-  const [history, setHistory] = useState<HistoryItem[]>([])
-  const [showHistory, setShowHistory] = useState(false)
+  const [mode, setMode] = useState<'url' | 'upload'>('url')
+  const [dragOver, setDragOver] = useState(false)
 
   const extractVideoId = (inputUrl: string): string | null => {
     const patterns = [
@@ -51,7 +44,7 @@ export default function Home() {
     return null
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleUrlSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     const videoId = extractVideoId(url)
@@ -78,9 +71,6 @@ export default function Home() {
       }
 
       setResult(data)
-      
-      // 히스토리 새로고침
-      fetchHistory()
     } catch (err) {
       setError(err instanceof Error ? err.message : '오류가 발생했습니다')
     } finally {
@@ -88,16 +78,55 @@ export default function Home() {
     }
   }
 
-  const fetchHistory = async () => {
-    try {
-      const response = await fetch('/api/history')
-      if (response.ok) {
-        const data = await response.json()
-        setHistory(data.history || [])
-      }
-    } catch {
-      // 히스토리 로드 실패는 무시
+  const handleFileUpload = async (file: File) => {
+    if (!file.type.includes('audio') && !file.name.endsWith('.mp3') && !file.name.endsWith('.m4a') && !file.name.endsWith('.wav')) {
+      setError('오디오 파일만 업로드 가능합니다 (MP3, M4A, WAV)')
+      return
     }
+
+    // 25MB 제한
+    if (file.size > 25 * 1024 * 1024) {
+      setError('파일 크기는 25MB 이하여야 합니다')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || '알 수 없는 오류가 발생했습니다')
+      }
+
+      setResult({ ...data, fileName: file.name })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '오류가 발생했습니다')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFileUpload(file)
+  }
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleFileUpload(file)
   }
 
   const copyToClipboard = async () => {
@@ -116,6 +145,15 @@ export default function Home() {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const openMp3Download = () => {
+    const videoId = extractVideoId(url)
+    if (videoId) {
+      window.open(`https://ytmp3.cc/ko/youtube-to-mp3/?url=https://www.youtube.com/watch?v=${videoId}`, '_blank')
+    } else {
+      window.open('https://ytmp3.cc/ko/', '_blank')
+    }
   }
 
   return (
@@ -140,42 +178,147 @@ export default function Home() {
             </h1>
           </div>
           <p className="text-surface-200 text-lg">
-            유튜브 영상 링크를 입력하면 대본을 자동으로 추출해드려요
+            유튜브 영상의 대본을 추출해드려요
           </p>
         </header>
 
-        {/* 입력 폼 */}
-        <form onSubmit={handleSubmit} className="mb-8 animate-slide-up">
-          <div className="relative">
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://youtube.com/watch?v=..."
-              className="w-full px-6 py-4 bg-surface-900/80 backdrop-blur-sm border border-surface-800 rounded-2xl text-white placeholder-surface-200/50 input-focus focus:border-accent/50 focus:outline-none font-mono text-sm md:text-base"
-              disabled={loading}
-            />
+        {/* 모드 선택 탭 */}
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex bg-surface-900/80 rounded-xl p-1 border border-surface-800">
             <button
-              type="submit"
-              disabled={loading || !url.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2.5 bg-accent hover:bg-accent-light disabled:bg-surface-800 disabled:text-surface-200/50 rounded-xl font-medium transition-all duration-200 disabled:cursor-not-allowed glow-red hover:glow-red-intense"
+              onClick={() => setMode('url')}
+              className={`px-6 py-2.5 rounded-lg font-medium transition-all ${
+                mode === 'url' 
+                  ? 'bg-accent text-white glow-red' 
+                  : 'text-surface-200 hover:text-white'
+              }`}
             >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  추출 중
-                </span>
-              ) : '추출하기'}
+              🔗 URL 입력
+            </button>
+            <button
+              onClick={() => setMode('upload')}
+              className={`px-6 py-2.5 rounded-lg font-medium transition-all ${
+                mode === 'upload' 
+                  ? 'bg-accent text-white glow-red' 
+                  : 'text-surface-200 hover:text-white'
+              }`}
+            >
+              📁 파일 업로드
             </button>
           </div>
-        </form>
+        </div>
+
+        {/* URL 입력 모드 */}
+        {mode === 'url' && (
+          <div className="animate-slide-up">
+            <form onSubmit={handleUrlSubmit} className="mb-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://youtube.com/watch?v=..."
+                  className="w-full px-6 py-4 bg-surface-900/80 backdrop-blur-sm border border-surface-800 rounded-2xl text-white placeholder-surface-200/50 input-focus focus:border-accent/50 focus:outline-none font-mono text-sm md:text-base"
+                  disabled={loading}
+                />
+                <button
+                  type="submit"
+                  disabled={loading || !url.trim()}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2.5 bg-accent hover:bg-accent-light disabled:bg-surface-800 disabled:text-surface-200/50 rounded-xl font-medium transition-all duration-200 disabled:cursor-not-allowed glow-red hover:glow-red-intense"
+                >
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      추출 중
+                    </span>
+                  ) : '추출하기'}
+                </button>
+              </div>
+            </form>
+            <p className="text-center text-surface-200/60 text-sm">
+              ℹ️ 자막이 있는 영상만 지원됩니다. 자막 없는 영상은 &apos;파일 업로드&apos; 탭을 이용하세요.
+            </p>
+          </div>
+        )}
+
+        {/* 파일 업로드 모드 */}
+        {mode === 'upload' && (
+          <div className="animate-slide-up space-y-4">
+            {/* MP3 다운로드 안내 */}
+            <div className="bg-surface-900/80 border border-surface-800 rounded-2xl p-6">
+              <h3 className="font-bold mb-3 flex items-center gap-2">
+                <span className="text-xl">📥</span> 
+                먼저 MP3 파일을 다운받으세요
+              </h3>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="text"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="유튜브 URL 붙여넣기 (선택)"
+                  className="flex-1 px-4 py-3 bg-surface-800 border border-surface-800 rounded-xl text-white placeholder-surface-200/50 focus:outline-none focus:border-accent/50 font-mono text-sm"
+                />
+                <button
+                  onClick={openMp3Download}
+                  className="px-6 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  MP3 다운로드 사이트
+                </button>
+              </div>
+              <p className="text-surface-200/60 text-sm mt-3">
+                → 외부 사이트에서 MP3 파일을 다운받은 후, 아래에 업로드하세요
+              </p>
+            </div>
+
+            {/* 파일 업로드 영역 */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all ${
+                dragOver 
+                  ? 'border-accent bg-accent/10' 
+                  : 'border-surface-800 hover:border-surface-200/30'
+              }`}
+            >
+              <input
+                type="file"
+                accept="audio/*,.mp3,.m4a,.wav"
+                onChange={handleFileInput}
+                className="hidden"
+                id="file-upload"
+                disabled={loading}
+              />
+              <label htmlFor="file-upload" className="cursor-pointer">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-16 h-16 bg-surface-800 rounded-2xl flex items-center justify-center">
+                    <svg className="w-8 h-8 text-surface-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-lg font-medium mb-1">
+                      {loading ? '분석 중...' : '파일을 드래그하거나 클릭해서 업로드'}
+                    </p>
+                    <p className="text-surface-200/60 text-sm">
+                      MP3, M4A, WAV 지원 (최대 25MB)
+                    </p>
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* 에러 메시지 */}
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 animate-fade-in">
+          <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 animate-fade-in">
             <span className="flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -187,7 +330,7 @@ export default function Home() {
 
         {/* 로딩 상태 */}
         {loading && (
-          <div className="space-y-4 animate-fade-in">
+          <div className="mt-6 space-y-4 animate-fade-in">
             <div className="h-32 rounded-2xl shimmer" />
             <div className="h-64 rounded-2xl shimmer" />
           </div>
@@ -195,34 +338,46 @@ export default function Home() {
 
         {/* 결과 */}
         {result && !loading && (
-          <div className="space-y-6 animate-slide-up">
-            {/* 영상 정보 카드 */}
+          <div className="mt-6 space-y-6 animate-slide-up">
+            {/* 영상/파일 정보 카드 */}
             <div className="bg-surface-900/80 backdrop-blur-sm border border-surface-800 rounded-2xl overflow-hidden card-hover">
               <div className="flex flex-col md:flex-row">
-                <div className="relative w-full md:w-72 aspect-video md:aspect-auto flex-shrink-0">
-                  <Image
-                    src={result.videoInfo.thumbnail}
-                    alt={result.videoInfo.title}
-                    fill
-                    className="object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent to-surface-900/50 hidden md:block" />
-                </div>
-                <div className="p-6 flex flex-col justify-center">
-                  <h2 className="text-xl font-bold mb-2 line-clamp-2">
-                    {result.videoInfo.title}
-                  </h2>
-                  <p className="text-surface-200">
-                    {result.videoInfo.channelName}
-                  </p>
-                  <div className="mt-4 flex items-center gap-3">
-                    <span className="px-3 py-1 bg-accent/10 text-accent rounded-full text-sm font-medium">
-                      {result.transcript.length}개 세그먼트
-                    </span>
-                    <span className="text-surface-200/60 text-sm">
-                      약 {Math.ceil(result.fullText.length / 500)}분 분량
-                    </span>
+                {result.videoInfo ? (
+                  <>
+                    <div className="relative w-full md:w-72 aspect-video md:aspect-auto flex-shrink-0">
+                      <Image
+                        src={result.videoInfo.thumbnail}
+                        alt={result.videoInfo.title}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                    <div className="p-6 flex flex-col justify-center">
+                      <h2 className="text-xl font-bold mb-2 line-clamp-2">
+                        {result.videoInfo.title}
+                      </h2>
+                      <p className="text-surface-200">
+                        {result.videoInfo.channelName}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-6 flex items-center gap-4">
+                    <div className="w-16 h-16 bg-accent/20 rounded-xl flex items-center justify-center">
+                      <svg className="w-8 h-8 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold mb-1">{result.fileName}</h2>
+                      <p className="text-surface-200">업로드된 오디오 파일</p>
+                    </div>
                   </div>
+                )}
+                <div className="p-6 flex items-center">
+                  <span className="px-3 py-1 bg-accent/10 text-accent rounded-full text-sm font-medium">
+                    {result.transcript.length}개 세그먼트
+                  </span>
                 </div>
               </div>
             </div>
@@ -265,74 +420,26 @@ export default function Home() {
                     key={index}
                     className="flex gap-3 p-2 rounded-lg hover:bg-surface-800/50 transition-colors group"
                   >
-                    <a
-                      href={`https://youtube.com/watch?v=${result.videoInfo.videoId}&t=${Math.floor(segment.offset)}s`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="timestamp flex-shrink-0 hover:bg-accent/30 transition-colors"
-                    >
-                      {formatTime(segment.offset)}
-                    </a>
+                    {result.videoInfo ? (
+                      <a
+                        href={`https://youtube.com/watch?v=${result.videoInfo.videoId}&t=${Math.floor(segment.offset)}s`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="timestamp flex-shrink-0 hover:bg-accent/30 transition-colors"
+                      >
+                        {formatTime(segment.offset)}
+                      </a>
+                    ) : (
+                      <span className="timestamp flex-shrink-0">
+                        {formatTime(segment.offset)}
+                      </span>
+                    )}
                     <p className="text-surface-100 leading-relaxed">
                       {segment.text}
                     </p>
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* 히스토리 버튼 */}
-        <div className="fixed bottom-6 right-6">
-          <button
-            onClick={() => {
-              setShowHistory(!showHistory)
-              if (!showHistory) fetchHistory()
-            }}
-            className="w-14 h-14 bg-surface-900 border border-surface-800 rounded-full flex items-center justify-center hover:border-accent/50 transition-colors card-hover"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-        </div>
-
-        {/* 히스토리 패널 */}
-        {showHistory && (
-          <div className="fixed bottom-24 right-6 w-80 bg-surface-900/95 backdrop-blur-sm border border-surface-800 rounded-2xl overflow-hidden animate-slide-up shadow-2xl">
-            <div className="p-4 border-b border-surface-800">
-              <h3 className="font-bold">최근 추출 기록</h3>
-            </div>
-            <div className="max-h-80 overflow-y-auto">
-              {history.length === 0 ? (
-                <div className="p-6 text-center text-surface-200/60">
-                  아직 기록이 없어요
-                </div>
-              ) : (
-                history.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      setUrl(`https://youtube.com/watch?v=${item.video_id}`)
-                      setShowHistory(false)
-                    }}
-                    className="w-full p-3 flex items-center gap-3 hover:bg-surface-800/50 transition-colors text-left"
-                  >
-                    <img
-                      src={item.thumbnail}
-                      alt=""
-                      className="w-16 h-10 object-cover rounded"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.title}</p>
-                      <p className="text-xs text-surface-200/60">
-                        {new Date(item.created_at).toLocaleDateString('ko-KR')}
-                      </p>
-                    </div>
-                  </button>
-                ))
-              )}
             </div>
           </div>
         )}
@@ -345,4 +452,3 @@ export default function Home() {
     </main>
   )
 }
-
