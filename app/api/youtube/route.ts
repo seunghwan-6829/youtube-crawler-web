@@ -66,31 +66,47 @@ async function tryGetSubtitles(videoId: string): Promise<TranscriptSegment[] | n
   }
 }
 
-// RapidAPI로 오디오 URL 가져오기
+// RapidAPI로 오디오 URL 가져오기 (재시도 로직 포함)
 async function getAudioUrl(videoId: string): Promise<string> {
   if (!RAPIDAPI_KEY) {
     throw new Error('RapidAPI 키가 설정되지 않았습니다')
   }
 
-  const response = await fetch(`https://${RAPIDAPI_HOST}/dl?id=${videoId}`, {
-    method: 'GET',
-    headers: {
-      'X-RapidAPI-Key': RAPIDAPI_KEY,
-      'X-RapidAPI-Host': RAPIDAPI_HOST,
-    },
-  })
+  const maxRetries = 5
+  const retryDelay = 3000 // 3초
 
-  if (!response.ok) {
-    throw new Error('오디오 URL을 가져올 수 없습니다')
-  }
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const response = await fetch(`https://${RAPIDAPI_HOST}/dl?id=${videoId}`, {
+      method: 'GET',
+      headers: {
+        'X-RapidAPI-Key': RAPIDAPI_KEY,
+        'X-RapidAPI-Host': RAPIDAPI_HOST,
+      },
+    })
 
-  const data = await response.json()
-  
-  if (data.status !== 'ok' || !data.link) {
+    if (!response.ok) {
+      throw new Error('오디오 URL을 가져올 수 없습니다')
+    }
+
+    const data = await response.json()
+    
+    // 변환 완료
+    if (data.status === 'ok' && data.link) {
+      return data.link
+    }
+    
+    // 처리 중이면 대기 후 재시도
+    if (data.status === 'processing' || data.msg === 'in process') {
+      console.log(`오디오 변환 중... (${attempt + 1}/${maxRetries})`)
+      await new Promise(resolve => setTimeout(resolve, retryDelay))
+      continue
+    }
+    
+    // 그 외 오류
     throw new Error(data.msg || '오디오 변환에 실패했습니다')
   }
 
-  return data.link
+  throw new Error('오디오 변환 시간이 초과되었습니다. 다시 시도해주세요.')
 }
 
 // Whisper API로 음성 인식
