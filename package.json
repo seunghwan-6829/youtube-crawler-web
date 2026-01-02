@@ -13,7 +13,9 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "@supabase/supabase-js": "^2.39.0",
-    "youtube-transcript": "^1.2.1"
+    "youtube-transcript": "^1.2.1",
+    "openai": "^4.28.0",
+    "@distube/ytdl-core": "^4.14.4"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
