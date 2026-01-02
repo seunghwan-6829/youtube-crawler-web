@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { YoutubeTranscript } from 'youtube-transcript'
 import OpenAI from 'openai'
-import ytdl from '@distube/ytdl-core'
 
 // OpenAI 클라이언트
 const openai = process.env.OPENAI_API_KEY 
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null
+
+// RapidAPI 설정
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY
+const RAPIDAPI_HOST = 'youtube-mp36.p.rapidapi.com'
 
 interface VideoInfo {
   videoId: string
@@ -63,36 +66,31 @@ async function tryGetSubtitles(videoId: string): Promise<TranscriptSegment[] | n
   }
 }
 
-// ytdl-core로 오디오 스트림 가져오기
-async function getAudioBuffer(videoId: string): Promise<Buffer> {
-  const url = `https://www.youtube.com/watch?v=${videoId}`
-  
-  // 오디오 포맷 정보 가져오기
-  const info = await ytdl.getInfo(url)
-  
-  // 오디오 전용 포맷 선택 (가장 작은 파일)
-  const audioFormat = ytdl.chooseFormat(info.formats, { 
-    quality: 'lowestaudio',
-    filter: 'audioonly'
-  })
-  
-  if (!audioFormat || !audioFormat.url) {
-    throw new Error('오디오 포맷을 찾을 수 없습니다')
+// RapidAPI로 오디오 URL 가져오기
+async function getAudioUrl(videoId: string): Promise<string> {
+  if (!RAPIDAPI_KEY) {
+    throw new Error('RapidAPI 키가 설정되지 않았습니다')
   }
 
-  // 오디오 다운로드
-  const response = await fetch(audioFormat.url, {
+  const response = await fetch(`https://${RAPIDAPI_HOST}/dl?id=${videoId}`, {
+    method: 'GET',
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    }
+      'X-RapidAPI-Key': RAPIDAPI_KEY,
+      'X-RapidAPI-Host': RAPIDAPI_HOST,
+    },
   })
 
   if (!response.ok) {
-    throw new Error('오디오 다운로드 실패')
+    throw new Error('오디오 URL을 가져올 수 없습니다')
   }
 
-  const arrayBuffer = await response.arrayBuffer()
-  return Buffer.from(arrayBuffer)
+  const data = await response.json()
+  
+  if (data.status !== 'ok' || !data.link) {
+    throw new Error(data.msg || '오디오 변환에 실패했습니다')
+  }
+
+  return data.link
 }
 
 // Whisper API로 음성 인식
@@ -101,19 +99,27 @@ async function transcribeWithWhisper(videoId: string): Promise<TranscriptSegment
     throw new Error('OpenAI API 키가 설정되지 않았습니다')
   }
 
-  // 오디오 버퍼 가져오기
-  const audioBuffer = await getAudioBuffer(videoId)
+  // RapidAPI로 오디오 URL 가져오기
+  const audioUrl = await getAudioUrl(videoId)
+  
+  // 오디오 다운로드
+  const audioResponse = await fetch(audioUrl)
+  if (!audioResponse.ok) {
+    throw new Error('오디오 다운로드에 실패했습니다')
+  }
+
+  const arrayBuffer = await audioResponse.arrayBuffer()
   
   // 파일 크기 체크 (Whisper API 제한: 25MB)
   const maxSize = 25 * 1024 * 1024
-  if (audioBuffer.length > maxSize) {
-    throw new Error('영상이 너무 깁니다. 짧은 영상으로 시도해주세요.')
+  if (arrayBuffer.byteLength > maxSize) {
+    throw new Error('영상이 너무 깁니다. 10분 이하의 영상으로 시도해주세요.')
   }
 
   // Buffer를 File 객체로 변환
-  const uint8Array = new Uint8Array(audioBuffer)
-  const audioBlob = new Blob([uint8Array], { type: 'audio/webm' })
-  const audioFile = new File([audioBlob], 'audio.webm', { type: 'audio/webm' })
+  const uint8Array = new Uint8Array(arrayBuffer)
+  const audioBlob = new Blob([uint8Array], { type: 'audio/mpeg' })
+  const audioFile = new File([audioBlob], 'audio.mp3', { type: 'audio/mpeg' })
 
   // Whisper API 호출
   const transcription = await openai.audio.transcriptions.create({
@@ -188,9 +194,9 @@ export async function POST(request: NextRequest) {
       transcript = subtitles
     } else {
       // 2. 자막 없으면 Whisper AI로 음성 인식
-      if (!openai) {
+      if (!openai || !RAPIDAPI_KEY) {
         return NextResponse.json(
-          { error: '이 영상에는 자막이 없습니다. AI 음성 인식을 위해 OpenAI API 키가 필요합니다.' },
+          { error: '이 영상에는 자막이 없습니다. AI 음성 인식을 사용하려면 API 키 설정이 필요합니다.' },
           { status: 400 }
         )
       }
