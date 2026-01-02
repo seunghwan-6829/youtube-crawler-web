@@ -111,7 +111,8 @@ async function transcribeWithWhisper(videoId: string): Promise<TranscriptSegment
   }
 
   // Buffer를 File 객체로 변환
-  const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' })
+  const uint8Array = new Uint8Array(audioBuffer)
+  const audioBlob = new Blob([uint8Array], { type: 'audio/webm' })
   const audioFile = new File([audioBlob], 'audio.webm', { type: 'audio/webm' })
 
   // Whisper API 호출
