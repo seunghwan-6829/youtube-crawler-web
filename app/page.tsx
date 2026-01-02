@@ -239,7 +239,7 @@ export default function Home() {
               </div>
             </form>
             <p className="text-center text-surface-200/60 text-sm">
-              ℹ️ 자막이 있는 영상만 지원됩니다. 자막 없는 영상은 &apos;파일 업로드&apos; 탭을 이용하세요.
+              ✨ 자막 있는 영상은 바로 추출! 자막 없으면 AI가 음성 인식해요 (최대 10분)
             </p>
           </div>
         )}
